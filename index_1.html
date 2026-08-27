@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MA Multifamily Market Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root{
+    --ink:#16232F; --ink-soft:#3C4A58; --paper:#F5F4EF; --card:#FFFFFF; --line:#DEDBD1;
+    --brass:#A9803F; --brass-dark:#7C5D2C; --sage:#4E7358; --sage-bg:#E7EEE7;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;padding:36px 20px 60px;}
+  .wrap{max-width:1040px;margin:0 auto;}
+  header{margin-bottom:24px;border-bottom:1px solid var(--line);padding-bottom:20px;}
+  .eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--brass-dark);font-weight:600;margin:0 0 8px;}
+  h1{font-family:'Fraunces',serif;font-weight:500;font-size:29px;margin:0 0 6px;letter-spacing:-.01em;}
+  .sub{color:var(--ink-soft);font-size:14px;margin:0;max-width:62ch;}
+
+  .controls{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px 22px;margin-bottom:22px;}
+  .controls-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;align-items:end;}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:6px;font-weight:600;}
+  .field select, .field input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:'Inter',sans-serif;background:#fff;color:var(--ink);}
+  .range-row{display:flex;gap:8px;align-items:center;}
+  .range-row input{width:100%;}
+  .units-row{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--line);border-radius:16px;padding:5px 12px;font-size:12.5px;cursor:pointer;user-select:none;background:#fff;color:var(--ink-soft);}
+  .chip.active{background:var(--ink);border-color:var(--ink);color:#fff;}
+  .reset-link{font-size:12.5px;color:var(--ink-soft);text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;margin-top:14px;}
+
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px;}
+  .metric{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;}
+  .metric .label{font-size:12px;color:var(--ink-soft);margin:0 0 6px;}
+  .metric .value{font-family:'Fraunces',serif;font-size:23px;font-weight:500;margin:0;letter-spacing:-.01em;}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px;margin-bottom:20px;}
+  .card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:2px;flex-wrap:wrap;}
+  .card h2{font-family:'Fraunces',serif;font-weight:500;font-size:17px;margin:0 0 2px;}
+  .card .hint{color:var(--ink-soft);font-size:12.5px;margin:0 0 14px;}
+  .card select.metric-toggle{padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;background:#fff;}
+  canvas{max-height:280px;}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  th{color:var(--ink-soft);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.03em;}
+  tr:last-child td{border-bottom:none;}
+  .badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:500;background:var(--sage-bg);color:var(--sage);}
+  .load-more{margin-top:14px;}
+  .btn{display:inline-block;background:var(--ink);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;}
+  .btn:hover{background:#233042;}
+
+  .status{padding:60px 20px;text-align:center;color:var(--ink-soft);font-size:14px;}
+  .status.error{color:#B5482E;}
+  footer{margin-top:28px;text-align:center;color:var(--ink-soft);font-size:12px;}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Massachusetts investor market data</p>
+    <h1>Multifamily market explorer</h1>
+    <p class="sub">Closed multifamily sales from MLS, 2006–present. Filter by town, year range, and unit count to see the numbers that matter for your target market.</p>
+  </header>
+
+  <div id="loadingStatus" class="status">Loading market data…</div>
+  <div id="errorStatus" class="status error hidden"></div>
+
+  <div id="app" class="hidden">
+
+    <div class="controls">
+      <div class="controls-grid">
+        <div class="field">
+          <label for="townFilter">Town</label>
+          <select id="townFilter"><option value="__all__">All towns</option></select>
+        </div>
+        <div class="field">
+          <label>Sold year range</label>
+          <div class="range-row">
+            <input type="number" id="yearFrom" min="2006" max="2026">
+            <span>–</span>
+            <input type="number" id="yearTo" min="2006" max="2026">
+          </div>
+        </div>
+        <div class="field" style="grid-column:span 2;">
+          <label>Unit count</label>
+          <div class="units-row" id="unitsChips">
+            <span class="chip active" data-units="all">All</span>
+            <span class="chip" data-units="2">2</span>
+            <span class="chip" data-units="3">3</span>
+            <span class="chip" data-units="4">4</span>
+            <span class="chip" data-units="5+">5+</span>
+          </div>
+        </div>
+      </div>
+      <button class="reset-link" id="resetBtn">Reset filters</button>
+    </div>
+
+    <div class="metrics" id="metricsGrid"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Trend over time</h2>
+          <p class="hint">Median value by month, for the current filters</p>
+        </div>
+        <select class="metric-toggle" id="trendMetric">
+          <option value="price_per_unit">Median $ / unit</option>
+          <option value="price_per_sqft">Median $ / sqft</option>
+          <option value="grm">Median GRM</option>
+          <option value="cap_rate_pct">Median cap rate</option>
+          <option value="days_on_market">Avg days on market</option>
+          <option value="sale_to_list_pct">Avg sale-to-list %</option>
+          <option value="tax_burden_pct">Avg tax burden (% of price)</option>
+          <option value="count">Sales volume</option>
+        </select>
+      </div>
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2 id="townChartTitle">Town comparison</h2>
+          <p class="hint">Top 15 towns by sales volume in this range</p>
+        </div>
+        <select class="metric-toggle" id="townMetric">
+          <option value="price_per_unit">Median $ / unit</option>
+          <option value="price_per_sqft">Median $ / sqft</option>
+          <option value="grm">Median GRM</option>
+          <option value="cap_rate_pct">Median cap rate</option>
+        </select>
+      </div>
+      <canvas id="townChart"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Common unit mixes</h2>
+      <p class="hint">Most frequent bedroom configurations, current filters</p>
+      <canvas id="mixChart"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Unit mix shift over time</h2>
+      <p class="hint">Share of sales by typical unit size, by year</p>
+      <canvas id="mixShiftChart"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Sales <span class="badge" id="countBadge"></span></h2>
+      <p class="hint">Most recent closings matching your filters</p>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Town</th><th>Zip</th><th>Units</th><th>Unit mix</th><th>Sold price</th><th>$/unit</th><th>$/sqft</th><th>GRM</th><th>Sold date</th></tr></thead>
+          <tbody id="salesBody"></tbody>
+        </table>
+      </div>
+      <div class="load-more"><button class="btn hidden" id="loadMoreBtn">Show more</button></div>
+    </div>
+
+    <footer>
+      Sourced from MLS closed-sale data, 2006–present. Cap rate and NOI figures reflect what was reported at time of listing and may not include full operating expenses — always verify with a current rent roll before underwriting. For informational purposes only, not investment advice.
+    </footer>
+  </div>
+</div>
+
+<script>
+const DATA_FILE_URL = 'https://raw.githubusercontent.com/trueworth94/thedata/refs/heads/main/cleaned-multifamily-2006-2026.xlsx';
+
+let ALL_DATA = [];
+let filtered = [];
+let charts = {};
+let tableLimit = 20;
+
+function median(arr){
+  const a = arr.filter(v => v !== null && v !== undefined && !isNaN(v)).sort((x,y)=>x-y);
+  if (!a.length) return null;
+  const mid = Math.floor(a.length/2);
+  return a.length % 2 ? a[mid] : (a[mid-1]+a[mid])/2;
+}
+function avg(arr){
+  const a = arr.filter(v => v !== null && v !== undefined && !isNaN(v));
+  return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+}
+function fmtMoney(n){ return (n===null||n===undefined||isNaN(n)) ? '—' : '$' + Math.round(n).toLocaleString(); }
+function fmtNum(n,d){ return (n===null||n===undefined||isNaN(n)) ? '—' : n.toFixed(d===undefined?1:d); }
+function avgBedrooms(mixStr, units){
+  if (!mixStr || !units) return null;
+  // mixStr format: "2x 2BR, 1x 3BR"
+  const parts = mixStr.split(',').map(s=>s.trim());
+  let totalBeds = 0, totalUnits = 0;
+  parts.forEach(p => {
+    const m = p.match(/(\d+)x\s*(\d+)BR/i);
+    if (m){ totalUnits += parseInt(m[1]); totalBeds += parseInt(m[1])*parseInt(m[2]); }
+  });
+  return totalUnits ? totalBeds/totalUnits : null;
+}
+function bedroomBucket(avgBed){
+  if (avgBed === null || avgBed === undefined) return null;
+  if (avgBed < 1.5) return '1BR or less';
+  if (avgBed < 2.5) return '2BR';
+  return '3BR+';
+}
+
+function mapRow(r){
+  return {
+    town: r.town,
+    zip: r.zip,
+    sold_price: r.sold_price ? parseFloat(r.sold_price) : null,
+    units: r.units ? parseFloat(r.units) : null,
+    price_per_unit: r.price_per_unit ? parseFloat(r.price_per_unit) : null,
+    sqft: r.sqft ? parseFloat(r.sqft) : null,
+    price_per_sqft: r.price_per_sqft ? parseFloat(r.price_per_sqft) : null,
+    grm: r.grm ? parseFloat(r.grm) : null,
+    cap_rate_pct: r.cap_rate_pct ? parseFloat(r.cap_rate_pct) : null,
+    sale_to_list_pct: r.sale_to_list_pct ? parseFloat(r.sale_to_list_pct) : null,
+    annual_taxes: r.annual_taxes ? parseFloat(r.annual_taxes) : null,
+    sold_date: r.sold_date ? String(r.sold_date).slice(0,10) : null,
+    days_on_market: r.days_on_market ? parseFloat(r.days_on_market) : null,
+    unit_mix: r.unit_mix || null,
+    avg_bedrooms_per_unit: avgBedrooms(r.unit_mix, r.units ? parseFloat(r.units) : null),
+  };
+}
+
+function finishLoad(rows){
+  ALL_DATA = rows.map(mapRow).filter(r => r.town && r.sold_price && r.sold_date);
+  if (!ALL_DATA.length){
+    showError('The data file loaded but no usable rows were found. Check that ' + DATA_FILE_URL + ' matches the expected format.');
+    return;
+  }
+  initControls();
+  applyFilters();
+  document.getElementById('loadingStatus').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+
+const isExcel = /\.xlsx?$/i.test(DATA_FILE_URL);
+
+if (isExcel){
+  fetch(DATA_FILE_URL)
+    .then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.arrayBuffer(); })
+    .then(buf => {
+      const wb = XLSX.read(buf, {type:'array', cellDates:false});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+      finishLoad(rows);
+    })
+    .catch(err => showError('Could not load "' + DATA_FILE_URL + '". Make sure this file is uploaded and the URL is correct. (' + err + ')'));
+} else {
+  Papa.parse(DATA_FILE_URL, {
+    download: true,
+    header: true,
+    dynamicTyping: false,
+    skipEmptyLines: true,
+    worker: true,
+    complete: (results) => finishLoad(results.data),
+    error: (err) => showError('Could not load "' + DATA_FILE_URL + '". Make sure this file is uploaded and the URL is correct. (' + err + ')')
+  });
+}
+
+function showError(msg){
+  document.getElementById('loadingStatus').classList.add('hidden');
+  const el = document.getElementById('errorStatus');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function initControls(){
+  const towns = Array.from(new Set(ALL_DATA.map(r=>r.town))).sort();
+  const townFilter = document.getElementById('townFilter');
+  towns.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    townFilter.appendChild(opt);
+  });
+
+  const years = ALL_DATA.map(r => parseInt(r.sold_date.slice(0,4))).filter(y=>!isNaN(y));
+  let minY = Infinity, maxY = -Infinity;
+  for (const y of years){ if (y < minY) minY = y; if (y > maxY) maxY = y; }
+  document.getElementById('yearFrom').min = minY; document.getElementById('yearFrom').max = maxY;
+  document.getElementById('yearTo').min = minY; document.getElementById('yearTo').max = maxY;
+  document.getElementById('yearFrom').value = minY;
+  document.getElementById('yearTo').value = maxY;
+
+  townFilter.addEventListener('change', () => { tableLimit=20; applyFilters(); });
+  document.getElementById('yearFrom').addEventListener('change', () => { tableLimit=20; applyFilters(); });
+  document.getElementById('yearTo').addEventListener('change', () => { tableLimit=20; applyFilters(); });
+  document.querySelectorAll('#unitsChips .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#unitsChips .chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      tableLimit=20; applyFilters();
+    });
+  });
+  document.getElementById('trendMetric').addEventListener('change', renderTrendChart);
+  document.getElementById('townMetric').addEventListener('change', renderTownChart);
+  document.getElementById('loadMoreBtn').addEventListener('click', () => { tableLimit += 20; renderTable(); });
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    townFilter.value = '__all__';
+    document.getElementById('yearFrom').value = minY;
+    document.getElementById('yearTo').value = maxY;
+    document.querySelectorAll('#unitsChips .chip').forEach(c=>c.classList.remove('active'));
+    document.querySelector('#unitsChips .chip[data-units="all"]').classList.add('active');
+    tableLimit = 20;
+    applyFilters();
+  });
+}
+
+function currentUnitFilter(){
+  const active = document.querySelector('#unitsChips .chip.active');
+  return active ? active.dataset.units : 'all';
+}
+
+function applyFilters(){
+  const town = document.getElementById('townFilter').value;
+  const yFrom = parseInt(document.getElementById('yearFrom').value);
+  const yTo = parseInt(document.getElementById('yearTo').value);
+  const unitsSel = currentUnitFilter();
+
+  filtered = ALL_DATA.filter(r => {
+    if (town !== '__all__' && r.town !== town) return false;
+    const y = parseInt(r.sold_date.slice(0,4));
+    if (y < yFrom || y > yTo) return false;
+    if (unitsSel !== 'all'){
+      if (unitsSel === '5+'){ if (!r.units || r.units < 5) return false; }
+      else { if (r.units !== parseFloat(unitsSel)) return false; }
+    }
+    return true;
+  });
+
+  document.getElementById('townChartTitle').textContent = town === '__all__' ? 'Town comparison' : `${town} vs. other towns`;
+  renderMetrics();
+  renderTrendChart();
+  renderTownChart();
+  renderMixChart();
+  renderMixShiftChart();
+  renderTable();
+}
+
+function renderMetrics(){
+  const prices = filtered.map(r=>r.sold_price);
+  const perUnit = filtered.map(r=>r.price_per_unit).filter(v=>v);
+  const ppsf = filtered.map(r=>r.price_per_sqft).filter(v=>v);
+  const grms = filtered.map(r=>r.grm).filter(v=>v);
+  const caps = filtered.map(r=>r.cap_rate_pct).filter(v=>v);
+  const doms = filtered.map(r=>r.days_on_market).filter(v=>v);
+
+  document.getElementById('metricsGrid').innerHTML = [
+    {label:'Closed sales', value: filtered.length.toLocaleString()},
+    {label:'Median sold price', value: fmtMoney(median(prices))},
+    {label:'Median $ / unit', value: perUnit.length ? fmtMoney(median(perUnit)) : '—'},
+    {label:'Median $ / sqft', value: ppsf.length ? '$'+Math.round(median(ppsf)) : '—'},
+    {label:'Median GRM', value: grms.length ? fmtNum(median(grms)) : '—'},
+    {label:'Median cap rate', value: caps.length ? fmtNum(median(caps))+'%' : '—'},
+    {label:'Avg days on market', value: doms.length ? Math.round(avg(doms)) : '—'},
+  ].map(m => `<div class="metric"><p class="label">${m.label}</p><p class="value">${m.value}</p></div>`).join('');
+}
+
+function destroy(key){ if (charts[key]) { charts[key].destroy(); charts[key]=null; } }
+
+function renderTrendChart(){
+  const metric = document.getElementById('trendMetric').value;
+  const byMonth = {};
+  filtered.forEach(r => {
+    const key = r.sold_date.slice(0,7);
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(r);
+  });
+  const months = Object.keys(byMonth).sort();
+  const values = months.map(m => {
+    const rows = byMonth[m];
+    if (metric === 'count') return rows.length;
+    if (metric === 'days_on_market') return avg(rows.map(r=>r.days_on_market).filter(v=>v));
+    if (metric === 'sale_to_list_pct') return avg(rows.map(r=>r.sale_to_list_pct).filter(v=>v));
+    if (metric === 'tax_burden_pct') return median(rows.map(r=> (r.annual_taxes && r.sold_price) ? (r.annual_taxes/r.sold_price*100) : null).filter(v=>v));
+    return median(rows.map(r=>r[metric]).filter(v=>v));
+  });
+  const isMoney = ['price_per_unit','price_per_sqft'].includes(metric);
+  const isPct = ['sale_to_list_pct','tax_burden_pct'].includes(metric);
+  destroy('trend');
+  charts.trend = new Chart(document.getElementById('trendChart'), {
+    type:'line',
+    data:{ labels: months, datasets:[{data: values.map(v=>v===null?null:Math.round(v*10)/10), borderColor:'#16232F', backgroundColor:'rgba(22,35,47,0.08)', fill:true, tension:.25, pointRadius:2, spanGaps:true}] },
+    options:{ responsive:true, maintainAspectRatio:true, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=> isMoney ? '$'+c.parsed.y.toLocaleString() : isPct ? c.parsed.y+'%' : c.parsed.y}}},
+      scales:{ y:{ ticks:{ callback:v=> isMoney ? '$'+Math.round(v/1000)+'k' : isPct ? v+'%' : v }, grid:{color:'#E7E4DA'} }, x:{ grid:{display:false}, ticks:{ maxTicksLimit:12 } } } }
+  });
+}
+
+function renderTownChart(){
+  const metric = document.getElementById('townMetric').value;
+  const byTown = {};
+  filtered.forEach(r => { if (!byTown[r.town]) byTown[r.town]=[]; byTown[r.town].push(r); });
+  const rowsOut = Object.entries(byTown).map(([town, list]) => ({
+    town, count: list.length, value: median(list.map(r=>r[metric]).filter(v=>v))
+  })).filter(g => g.value !== null).sort((a,b) => b.count - a.count).slice(0,15)
+    .sort((a,b) => b.value - a.value);
+  const isMoney = ['price_per_unit','price_per_sqft'].includes(metric);
+  destroy('town');
+  charts.town = new Chart(document.getElementById('townChart'), {
+    type:'bar',
+    data:{ labels: rowsOut.map(g=>g.town), datasets:[{data: rowsOut.map(g=>Math.round(g.value*10)/10), backgroundColor:'#A9803F', borderRadius:4, maxBarThickness:26}] },
+    options:{ responsive:true, maintainAspectRatio:true, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=> isMoney ? '$'+c.parsed.y.toLocaleString() : c.parsed.y}}},
+      scales:{ y:{ ticks:{ callback:v=> isMoney ? '$'+Math.round(v/1000)+'k' : v }, grid:{color:'#E7E4DA'} }, x:{ grid:{display:false}, ticks:{ autoSkip:false, maxRotation:60, minRotation:40 } } } }
+  });
+}
+
+function renderMixChart(){
+  const counts = {};
+  filtered.forEach(r => { if (!r.unit_mix) return; counts[r.unit_mix] = (counts[r.unit_mix]||0)+1; });
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  destroy('mix');
+  charts.mix = new Chart(document.getElementById('mixChart'), {
+    type:'bar',
+    data:{ labels: top.map(m=>m[0]), datasets:[{data: top.map(m=>m[1]), backgroundColor:'#4E7358', borderRadius:4, maxBarThickness:20}] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:true, plugins:{legend:{display:false}},
+      scales:{ x:{ grid:{color:'#E7E4DA'} }, y:{ grid:{display:false} } } }
+  });
+}
+
+function renderMixShiftChart(){
+  const byYear = {};
+  filtered.forEach(r => {
+    if (!r.avg_bedrooms_per_unit) return;
+    const year = r.sold_date.slice(0,4);
+    const bucket = bedroomBucket(r.avg_bedrooms_per_unit);
+    if (!bucket) return;
+    if (!byYear[year]) byYear[year] = {'1BR or less':0, '2BR':0, '3BR+':0};
+    byYear[year][bucket]++;
+  });
+  const years = Object.keys(byYear).sort();
+  const buckets = ['1BR or less','2BR','3BR+'];
+  const colors = {'1BR or less':'#A9803F','2BR':'#4E7358','3BR+':'#16232F'};
+  const datasets = buckets.map(b => ({
+    label: b,
+    data: years.map(y => {
+      const total = buckets.reduce((s,bb)=>s+byYear[y][bb],0);
+      return total ? Math.round(byYear[y][b]/total*1000)/10 : 0;
+    }),
+    backgroundColor: colors[b],
+  }));
+  destroy('mixShift');
+  charts.mixShift = new Chart(document.getElementById('mixShiftChart'), {
+    type:'bar',
+    data:{ labels: years, datasets },
+    options:{ responsive:true, maintainAspectRatio:true,
+      plugins:{legend:{display:true, position:'bottom', labels:{boxWidth:12,font:{size:11}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+'%'}}},
+      scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, max:100, ticks:{ callback:v=>v+'%' }, grid:{color:'#E7E4DA'} } } }
+  });
+}
+
+function renderTable(){
+  const sorted = [...filtered].sort((a,b)=> b.sold_date.localeCompare(a.sold_date));
+  document.getElementById('countBadge').textContent = filtered.length.toLocaleString() + ' total';
+  const slice = sorted.slice(0, tableLimit);
+  document.getElementById('salesBody').innerHTML = slice.map(r => `
+    <tr>
+      <td>${r.town}</td>
+      <td>${r.zip ?? '—'}</td>
+      <td>${r.units ?? '—'}</td>
+      <td>${r.unit_mix ?? '—'}</td>
+      <td>${fmtMoney(r.sold_price)}</td>
+      <td>${r.price_per_unit ? fmtMoney(r.price_per_unit) : '—'}</td>
+      <td>${r.price_per_sqft ? '$'+Math.round(r.price_per_sqft) : '—'}</td>
+      <td>${r.grm ? fmtNum(r.grm) : '—'}</td>
+      <td>${r.sold_date}</td>
+    </tr>`).join('');
+  const btn = document.getElementById('loadMoreBtn');
+  if (sorted.length > tableLimit) btn.classList.remove('hidden'); else btn.classList.add('hidden');
+}
+</script>
+</body>
+</html>
